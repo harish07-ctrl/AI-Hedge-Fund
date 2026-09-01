@@ -9,7 +9,7 @@ import streamlit as st
 import pandas as pd
 
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
-API_BASE = "http://localhost:8000/api"
+import os
 
 st.set_page_config(
     page_title="AI Hedge Fund",
@@ -18,6 +18,28 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Allow backend URL to be customized via environment variable, secrets, or sidebar
+DEFAULT_BACKEND = os.getenv("BACKEND_URL", "http://localhost:8000")
+if "backend_url" not in st.session_state:
+    st.session_state["backend_url"] = DEFAULT_BACKEND
+
+# ─── SIDEBAR ──────────────────────────────────────────────────────────────────
+
+st.sidebar.title("AI Hedge Fund")
+st.sidebar.caption("Multi-agent investment analysis")
+
+with st.sidebar.expander("⚙️ Backend Connection Settings", expanded=False):
+    backend_input = st.text_input(
+        "Backend API URL",
+        value=st.session_state["backend_url"],
+        help="If deploying on Streamlit Cloud, enter your public backend URL (e.g., Render, Railway, ngrok). For local testing, use http://localhost:8000"
+    )
+    if backend_input != st.session_state["backend_url"]:
+        st.session_state["backend_url"] = backend_input.rstrip("/")
+        st.rerun()
+
+API_BASE = f"{st.session_state['backend_url'].rstrip('/')}/api"
+
 # ─── HELPERS ──────────────────────────────────────────────────────────────────
 
 def api_get(path: str) -> dict | list | None:
@@ -25,8 +47,12 @@ def api_get(path: str) -> dict | list | None:
         r = httpx.get(f"{API_BASE}{path}", timeout=30)
         r.raise_for_status()
         return r.json()
-    except httpx.ConnectError:
-        st.error("Cannot reach backend. Make sure the FastAPI server is running on http://localhost:8000")
+    except (httpx.ConnectError, httpx.ConnectTimeout):
+        st.error(
+            f"⚠️ **Cannot reach backend at `{st.session_state['backend_url']}`**.\n\n"
+            "- **Running locally?** Start the FastAPI server: `python -m uvicorn app.main:app --port 8000`\n"
+            "- **On Streamlit Cloud?** Streamlit Cloud runs on a remote server, so `localhost:8000` points to Streamlit's container, not your computer. Deploy your FastAPI backend to [Render](https://render.com) or [Railway](https://railway.app), or expose with [ngrok](https://ngrok.com), and paste the URL in the sidebar setting."
+        )
         return None
     except Exception as e:
         st.error(f"API error: {e}")
@@ -38,8 +64,12 @@ def api_post(path: str, payload: dict) -> dict | None:
         r = httpx.post(f"{API_BASE}{path}", json=payload, timeout=120)
         r.raise_for_status()
         return r.json()
-    except httpx.ConnectError:
-        st.error("Cannot reach backend. Make sure the FastAPI server is running on http://localhost:8000")
+    except (httpx.ConnectError, httpx.ConnectTimeout):
+        st.error(
+            f"⚠️ **Cannot reach backend at `{st.session_state['backend_url']}`**.\n\n"
+            "- **Running locally?** Ensure backend is running.\n"
+            "- **On Streamlit Cloud?** Configure your deployed backend URL in the sidebar."
+        )
         return None
     except Exception as e:
         st.error(f"API error: {e}")
@@ -51,11 +81,6 @@ def decision_badge(decision: str) -> str:
     color = colors.get(decision, "gray")
     return f":{color}[**{decision}**]"
 
-
-# ─── SIDEBAR ──────────────────────────────────────────────────────────────────
-
-st.sidebar.title("AI Hedge Fund")
-st.sidebar.caption("Multi-agent investment analysis")
 
 page = st.sidebar.radio(
     "Navigate",
